@@ -20,7 +20,7 @@ public class RandomnessTests
     [TearDown]
     public async Task TearDown()
     {
-        _cts.Cancel();
+        await _cts.CancelAsync();
         try
         {
             await _serverTask;
@@ -38,40 +38,34 @@ public class RandomnessTests
         const int numTrials = 1000;
 
         // Insert tuples that all match the same pattern
-        for (int i = 0; i < numCategories; i++)
+        for (var i = 0; i < numCategories; i++)
         {
             await client.OutAsync("item", i.ToString());
         }
 
         var counts = new int[numCategories];
 
-        for (int i = 0; i < numTrials; i++)
+        for (var i = 0; i < numTrials; i++)
         {
-            // We use RdAsync so we don't remove them, 
-            // but RdAsync should also be randomized in search start.
-            // Wait, my implementation of RdAsync uses GetAsync(..., remove: false).
-            // Actually, RdAsync in TupleSpaceClient calls 'rd' command.
-            // Let's check how 'rd' is handled in TcpServer.
-            
             var result = await client.RdAsync("item", "*");
-            int val = int.Parse(result[1]);
+            var val = int.Parse(result[1]);
             counts[val]++;
         }
 
         // Chi-Squared Test
         // H0: The tuples are picked uniformly at random.
         // Expected frequency for each category = numTrials / numCategories
-        double expected = (double)numTrials / numCategories;
+        var expected = (double)numTrials / numCategories;
         double chiSquared = 0;
 
-        for (int i = 0; i < numCategories; i++)
+        for (var i = 0; i < numCategories; i++)
         {
-            double diff = counts[i] - expected;
+            var diff = counts[i] - expected;
             chiSquared += (diff * diff) / expected;
         }
 
         // Degrees of freedom = numCategories - 1
-        int df = numCategories - 1;
+        var df = numCategories - 1;
         
         // Use a significance level of 0.05
         // We can use MathNet.Numerics for the distribution if available, 
@@ -79,7 +73,7 @@ public class RandomnessTests
         // Critical value for df=9, alpha=0.05 is 16.919
         
         Console.WriteLine($"Chi-Squared Statistic: {chiSquared}");
-        for(int i=0; i<numCategories; i++)
+        for(var i=0; i<numCategories; i++)
         {
             Console.WriteLine($"Category {i}: {counts[i]}");
         }
