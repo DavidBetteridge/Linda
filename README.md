@@ -6,10 +6,11 @@ A distributed coordination system based on the Linda coordination language, feat
 
 The system consists of four main components:
 
-1.  **TupleServer**: A TCP-based server that manages multiple named "tuple spaces". It supports atomic coordination primitives like `IN` (consume), `OUT` (produce), and `RD` (read).
+1.  **TupleServer**: A TCP-based server that manages multiple named "tuple spaces". It supports atomic coordination primitives like `IN` (consume), `OUT` (produce), and `RD` (read). It also broadcasts events over UDP for visualization.
 2.  **TupleClient**: A library providing the `TupleSpaceClient` for interacting with the server.
 3.  **ExpressionRunner**: A distributed worker that polls an `expressions` tuple space for C# code strings to execute against specific tuple spaces.
 4.  **TupleClient.Generators**: A C# Source Generator that allows developers to write type-safe code for remote execution.
+5.  **TupleVisualizer**: A native Avalonia application for real-time visualization of tuple spaces and processes.
 
 ## Core Operations (Linda Primitives)
 
@@ -177,6 +178,28 @@ The `Addition` project demonstrates summing numbers 1 to 1000 by distributing ad
 dotnet run --project Addition/Program.cs
 ```
 
+### 4. Start the Visualizer (Optional)
+Start the visualizer to see the interaction between processes and tuple spaces in real-time.
+```bash
+dotnet run --project TupleVisualizer/TupleVisualizer.csproj
+```
+
+## Tuple Space Visualizer
+
+The `TupleVisualizer` is a native Avalonia application that provides a graphical view of the distributed system.
+
+### Features
+- **Graph Representation**: Tuple spaces and processes are shown as nodes in a graph.
+- **Interactive**: Nodes can be dragged to organize the layout.
+- **Real-time Status**: Lines between nodes indicate the current state of communication:
+    - **Green**: Writing to a tuple space (`OUT`, `OUTBULK`).
+    - **Blue**: Reading from a tuple space (`RD`, `IN`, `RDP`, `INP`).
+    - **Orange (Dashed)**: Process is currently **blocked** waiting for a tuple.
+- **Automatic Cleanup**: Processes are removed from the visualizer when they disconnect.
+
+### Communication
+The `TupleServer` broadcasts events over **UDP port 9999**. The visualizer listens on this port. Since UDP is connectionless and "fire-and-forget", the visualization overhead on the server is minimal. The visualizer includes rate-limiting logic to handle high-frequency event bursts without freezing the UI.
+
 ## Project Structure
 
 - `TupleServer/`: The core TCP server.
@@ -186,4 +209,5 @@ dotnet run --project Addition/Program.cs
 - `Addition/`: An example application utilizing all components.
 - `SudokuSolver/`: An example demonstrating recursive solving via distributed tasks.
 - `DataFlow/`: A data pipeline example showing Stage 0 (generation), Stage 1 (doubling), and Stage 2 (incrementing).
+- `TupleVisualizer/`: The Avalonia-based visualization tool.
 - `TupleServer.Tests/`: Integration tests for the core protocol.
