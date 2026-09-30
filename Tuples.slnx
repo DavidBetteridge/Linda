@@ -7,4 +7,5 @@
   <Project Path="SudokuSolver/SudokuSolver.csproj" />
   <Project Path="DataFlow/DataFlow.csproj" />
   <Project Path="TupleServer/TupleServer.csproj" />
+  <Project Path="TupleVisualizer/TupleVisualizer.csproj" />
 </Solution>

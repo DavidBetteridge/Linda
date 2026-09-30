@@ -10,12 +10,14 @@ public class TcpServer
     private readonly int _port;
     private readonly TupleSpaceManager _manager;
     private readonly ServerStatistics _stats;
+    private readonly VisualizerBroadcaster _broadcaster;
 
-    public TcpServer(int port, ServerStatistics stats)
+    public TcpServer(int port, ServerStatistics stats, VisualizerBroadcaster? broadcaster = null)
     {
         _port = port;
         _stats = stats;
         _manager = new TupleSpaceManager();
+        _broadcaster = broadcaster ?? new VisualizerBroadcaster();
     }
 
     public TupleSpaceManager Manager => _manager;
@@ -42,6 +44,7 @@ public class TcpServer
 
     private async Task HandleClientAsync(TcpClient client, CancellationToken cancellationToken)
     {
+        var processId = $"P{Guid.NewGuid().ToString()[..8]}";
         try
         {
             using (client)
@@ -60,7 +63,7 @@ public class TcpServer
                     var command = JsonSerializer.Deserialize<Command>(line);
                     if (command == null) continue;
 
-                    var task = ProcessCommandAsync(command, writer, writerLock, cancellationToken);
+                    var task = ProcessCommandAsync(command, writer, writerLock, processId, cancellationToken);
                     tasks.Add(task);
 
                     // Clean up completed tasks
@@ -79,7 +82,7 @@ public class TcpServer
         }
     }
 
-    private async Task ProcessCommandAsync(Command command, StreamWriter writer, SemaphoreSlim writerLock, CancellationToken cancellationToken)
+    private async Task ProcessCommandAsync(Command command, StreamWriter writer, SemaphoreSlim writerLock, string processId, CancellationToken cancellationToken)
     {
         var space = _manager.GetOrCreateSpace(command.SpaceName);
         object? response = null;
@@ -95,6 +98,7 @@ public class TcpServer
                 {
                     space.Add(command.Tuple);
                     _stats.IncrementOut();
+                    _broadcaster.BroadcastEvent("OUT", command.SpaceName, processId, command.Tuple);
                     response = new { Status = "OK" };
                 }
                 break;
@@ -104,25 +108,31 @@ public class TcpServer
                 {
                     space.AddBulk(command.Tuples);
                     _stats.IncrementOut(command.Tuples.Count);
+                    _broadcaster.BroadcastEvent("OUTBULK", command.SpaceName, processId);
                     response = new { Status = "OK" };
                 }
                 break;
 
             case "IN":
+                _broadcaster.BroadcastEvent("BLOCKED", command.SpaceName, processId, command.Tuple);
                 var tuple = await space.GetAsync(command.Tuple, true, cancellationToken);
                 _stats.IncrementIn();
+                _broadcaster.BroadcastEvent("IN", command.SpaceName, processId, tuple);
                 response = new { Status = "OK", Tuple = tuple };
                 break;
 
             case "RD":
+                _broadcaster.BroadcastEvent("BLOCKED", command.SpaceName, processId, command.Tuple);
                 var rdTuple = await space.GetAsync(command.Tuple, false, cancellationToken);
                 _stats.IncrementRd();
+                _broadcaster.BroadcastEvent("RD", command.SpaceName, processId, rdTuple);
                 response = new { Status = "OK", Tuple = rdTuple };
                 break;
 
             case "INP":
                 var inpTuple = space.TryGet(command.Tuple, true);
                 _stats.IncrementInp();
+                _broadcaster.BroadcastEvent("INP", command.SpaceName, processId, inpTuple);
                 if (inpTuple != null)
                     response = new { Status = "OK", Tuple = inpTuple };
                 else
@@ -132,6 +142,7 @@ public class TcpServer
             case "RDP":
                 var rdpTuple = space.TryGet(command.Tuple, false);
                 _stats.IncrementRdp();
+                _broadcaster.BroadcastEvent("RDP", command.SpaceName, processId, rdpTuple);
                 if (rdpTuple != null)
                     response = new { Status = "OK", Tuple = rdpTuple };
                 else
