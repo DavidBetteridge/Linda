@@ -4,14 +4,14 @@
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         mc:Ignorable="d" d:DesignWidth="1200" d:DesignHeight="800"
         x:Class="TupleVisualizer.MainWindow"
-        Title="Tuple Space Visualizer"
+        Title="Linda - Tuple Space Visualizer"
         Width="1200" Height="800">
     
     <Grid RowDefinitions="Auto,*,Auto">
         <!-- Header -->
         <Border Grid.Row="0" Background="#2D2D30" Padding="10">
             <StackPanel Orientation="Horizontal" Spacing="20">
-                <TextBlock Text="Tuple Space Visualizer" 
+                <TextBlock Text="Linda - Tuple Space Visualizer" 
                            FontSize="20" 
                            FontWeight="Bold" 
                            Foreground="White"

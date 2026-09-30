@@ -44,6 +44,10 @@ public partial class MainWindow : Window
     private void OnLoaded(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
     {
         StartUdpListener();
+        
+        // Wire up canvas-level pointer events for dragging
+        GraphCanvas.PointerMoved += OnCanvasPointerMoved;
+        GraphCanvas.PointerReleased += OnCanvasPointerReleased;
     }
 
     private void OnClosing(object? sender, WindowClosingEventArgs e)
@@ -194,12 +198,36 @@ public partial class MainWindow : Window
     {
         GraphCanvas.Children.Clear();
         
-        // Remove stale connections (older than 2 seconds)
+        // Remove stale connections (older than 2 seconds), but keep blocked connections
+        // Also remove any connections for disconnected processes
         var staleThreshold = DateTime.UtcNow.AddSeconds(-2);
-        var staleConnections = _connections.Where(c => c.Value.LastUpdate < staleThreshold).ToList();
+        var staleConnections = _connections
+            .Where(c => c.Value.LastUpdate < staleThreshold && c.Value.State != ConnectionState.Blocked)
+            .ToList();
         foreach (var stale in staleConnections)
         {
             _connections.TryRemove(stale.Key, out _);
+        }
+        
+        // Remove connections for disconnected processes (including blocked ones)
+        var disconnectedConnections = _connections
+            .Where(c => _disconnectedProcesses.ContainsKey(c.Value.FromNodeId))
+            .ToList();
+        foreach (var conn in disconnectedConnections)
+        {
+            _connections.TryRemove(conn.Key, out _);
+        }
+        
+        // Remove process nodes that have no active connections and are older than 2 seconds
+        var processNodesWithConnections = _connections.Values
+            .Select(c => c.FromNodeId)
+            .ToHashSet();
+        var orphanedProcessNodes = _nodes
+            .Where(n => n.Value.NodeType == NodeType.Process && !processNodesWithConnections.Contains(n.Key))
+            .ToList();
+        foreach (var orphan in orphanedProcessNodes)
+        {
+            _nodes.TryRemove(orphan.Key, out _);
         }
         
         // Draw connections first (so they appear behind nodes)
@@ -270,10 +298,8 @@ public partial class MainWindow : Window
         Canvas.SetLeft(border, node.X);
         Canvas.SetTop(border, node.Y);
         
-        // Add drag handlers
+        // Add drag handler for starting drag on this node
         border.PointerPressed += OnNodePointerPressed;
-        border.PointerMoved += OnNodePointerMoved;
-        border.PointerReleased += OnNodePointerReleased;
         
         GraphCanvas.Children.Add(border);
     }
@@ -287,14 +313,15 @@ public partial class MainWindow : Window
                 _draggedNode = node;
                 var position = e.GetPosition(GraphCanvas);
                 _dragOffset = new Point(position.X - node.X, position.Y - node.Y);
-                e.Pointer.Capture(border);
+                e.Pointer.Capture(GraphCanvas);
+                e.Handled = true;
             }
         }
     }
 
-    private void OnNodePointerMoved(object? sender, PointerEventArgs e)
+    private void OnCanvasPointerMoved(object? sender, PointerEventArgs e)
     {
-        if (_draggedNode != null && sender is Border border)
+        if (_draggedNode != null)
         {
             var position = e.GetPosition(GraphCanvas);
             _draggedNode.X = position.X - _dragOffset.X;
@@ -308,9 +335,9 @@ public partial class MainWindow : Window
         }
     }
 
-    private void OnNodePointerReleased(object? sender, PointerReleasedEventArgs e)
+    private void OnCanvasPointerReleased(object? sender, PointerReleasedEventArgs e)
     {
-        if (_draggedNode != null && sender is Border border)
+        if (_draggedNode != null)
         {
             e.Pointer.Capture(null);
             _draggedNode = null;
