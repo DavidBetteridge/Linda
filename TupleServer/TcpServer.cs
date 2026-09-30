@@ -72,12 +72,13 @@ public class TcpServer
                 await Task.WhenAll(tasks);
             }
         }
-        catch (Exception ex)
+        catch (Exception)
         {
             // Logging removed as we have a dashboard now, or could log to a dedicated window
         }
         finally
         {
+            _broadcaster.BroadcastEvent("DISCONNECT", "", processId);
             _stats.ConnectionEnded();
         }
     }

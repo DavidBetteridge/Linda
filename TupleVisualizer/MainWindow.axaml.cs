@@ -18,6 +18,7 @@ public partial class MainWindow : Window
     private readonly ConcurrentDictionary<string, GraphNode> _nodes = new();
     private readonly ConcurrentDictionary<string, Connection> _connections = new();
     private readonly ConcurrentQueue<VisualizerEvent> _eventQueue = new();
+    private readonly ConcurrentDictionary<string, bool> _disconnectedProcesses = new();
     private readonly DispatcherTimer _renderTimer;
     private UdpClient? _udpClient;
     private CancellationTokenSource? _cts;
@@ -117,6 +118,28 @@ public partial class MainWindow : Window
 
     private void ProcessEvent(VisualizerEvent evt)
     {
+        var processId = $"process:{evt.ProcessId}";
+        
+        // Handle process disconnection
+        if (evt.EventType == "DISCONNECT")
+        {
+            _disconnectedProcesses[processId] = true;
+            _nodes.TryRemove(processId, out _);
+            // Remove all connections involving this process
+            var connectionsToRemove = _connections.Keys.Where(k => k.StartsWith(processId)).ToList();
+            foreach (var connId in connectionsToRemove)
+            {
+                _connections.TryRemove(connId, out _);
+            }
+            return;
+        }
+        
+        // Ignore events for disconnected processes (may still be in queue)
+        if (_disconnectedProcesses.ContainsKey(processId))
+        {
+            return;
+        }
+        
         // Ensure tuple space node exists
         var spaceId = $"space:{evt.SpaceName}";
         if (!_nodes.ContainsKey(spaceId))
@@ -133,7 +156,6 @@ public partial class MainWindow : Window
         }
         
         // Ensure process node exists
-        var processId = $"process:{evt.ProcessId}";
         if (!_nodes.ContainsKey(processId))
         {
             var processNode = new GraphNode
