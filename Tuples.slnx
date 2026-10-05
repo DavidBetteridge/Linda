@@ -1,4 +1,8 @@
 <Solution>
+  <Folder Name="/Build/">
+    <File Path="azure.md" />
+    <File Path="dockerfile" />
+  </Folder>
   <Project Path="Addition/Addition.csproj" />
   <Project Path="ExpressionRunner/ExpressionRunner.csproj" />
   <Project Path="TupleClient.Generators/TupleClient.Generators.csproj" />
