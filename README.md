@@ -184,6 +184,42 @@ Start the visualizer to see the interaction between processes and tuple spaces i
 dotnet run --project TupleVisualizer/TupleVisualizer.csproj
 ```
 
+## Authentication
+
+The `TupleServer` supports optional RSA-based authentication. When enabled, clients must prove possession of a private key corresponding to a public key stored on the server.
+
+### Authentication Process
+
+1.  **Client Hello**: Client sends an `AUTH` command with a `KeyId`.
+2.  **Server Challenge**: Server looks up the public key for the `KeyId`. If found, it generates a random challenge and sends it back.
+3.  **Client Response**: Client signs the challenge using its private key (RSA-SHA256-PKCS1) and sends the signature.
+4.  **Server Verification**: Server verifies the signature. If valid, the connection is authenticated.
+
+### Getting Started with Keys
+
+To use authentication, you need to generate an RSA key pair.
+
+**1. Generate a Private Key**
+```bash
+openssl genrsa -out mykey.pem 2048
+```
+
+**2. Extract the Public Key**
+```bash
+openssl rsa -in mykey.pem -pubout -out mykey.pub
+```
+
+**3. Configure the Server**
+Copy the public key (`mykey.pub`) into the `TupleServer/keys/` directory. The filename (excluding the `.pub` extension) will be used as the `KeyId`.
+
+**4. Configure the Client**
+Provide the `KeyId` and the content of the private key (`mykey.pem`) when creating the `TupleSpaceClient`.
+
+```csharp
+string privateKey = File.ReadAllText("mykey.pem");
+var client = new TupleSpaceClient("localhost", 8080, "my-space", "mykey", privateKey);
+```
+
 ## Tuple Space Visualizer
 
 The `TupleVisualizer` is a native Avalonia application that provides a graphical view of the distributed system.

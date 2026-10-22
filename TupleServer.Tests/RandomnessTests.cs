@@ -3,36 +3,26 @@ using TupleClient;
 namespace TupleServer.Tests;
 
 [TestFixture]
-public class RandomnessTests
+public class RandomnessTests : AuthTestBase
 {
-    private CancellationTokenSource _cts;
-    private Task _serverTask;
-    private const int Port = 8082;
+    private const int Port = 8083;
 
     [SetUp]
     public void Setup()
     {
-        _cts = new CancellationTokenSource();
-        var server = new TcpServer(Port, new ServerStatistics());
-        _serverTask = server.StartAsync(_cts.Token);
+        StartServer(Port);
     }
 
     [TearDown]
     public async Task TearDown()
     {
-        await _cts.CancelAsync();
-        try
-        {
-            await _serverTask;
-        }
-        catch (OperationCanceledException) { }
-        _cts.Dispose();
+        await StopServer();
     }
 
     [Test]
     public async Task TestTupleRandomness_ChiSquared()
     {
-        using var client = new TupleSpaceClient("127.0.0.1", Port, "test-random");
+        using var client = CreateClient("test-random");
 
         const int numCategories = 10;
         const int numTrials = 1000;

@@ -8,7 +8,9 @@ var spaceName = "addition" + Guid.NewGuid();
 
 // Connect to the tuple space server.
 // When running on different computers, don't use a local address!
-using var client = new TupleSpaceClient("127.0.0.1", 8080, spaceName);
+var keyId = Environment.GetEnvironmentVariable("TUPLE_KEY_ID");
+var privateKey = Environment.GetEnvironmentVariable("TUPLE_PRIVATE_KEY");
+using var client = new TupleSpaceClient("127.0.0.1", 8080, spaceName, keyId, privateKey);
 
 // We write all the numbers we wish to add along with some meta-data and tokens to the tuple space.
 await SetupData(client, numCount);

@@ -1,10 +1,18 @@
 using System.Net.Sockets;
+using System.Security.Cryptography;
 using System.Text;
+using System.Text.Json;
 
 namespace TupleClient;
 
-public class TupleSpaceClient(string host, int port, string spaceName) : IDisposable
+public class TupleSpaceClient : IDisposable
 {
+    private readonly string _host;
+    private readonly int _port;
+    private readonly string _spaceName;
+    private readonly string? _keyId;
+    private readonly string? _privateKeyPem;
+
     private TcpClient? _client;
     private NetworkStream? _stream;
     private StreamReader? _reader;
@@ -12,6 +20,15 @@ public class TupleSpaceClient(string host, int port, string spaceName) : IDispos
     private readonly SemaphoreSlim _semaphore = new(1, 1);
     private readonly Lock _scopeLock = new();
     private BulkOutScope? _currentBulkScope;
+
+    public TupleSpaceClient(string host, int port, string spaceName, string? keyId = null, string? privateKeyPem = null)
+    {
+        _host = host;
+        _port = port;
+        _spaceName = spaceName;
+        _keyId = keyId;
+        _privateKeyPem = privateKeyPem;
+    }
 
     internal void EnterBulkOutScope(BulkOutScope scope)
     {
@@ -38,11 +55,11 @@ public class TupleSpaceClient(string host, int port, string spaceName) : IDispos
         try
         {
             await EnsureConnectedAsync();
-            var command = new { Type = "OUTBULK", SpaceName = spaceName, Tuples = tuples };
-            await _writer!.WriteLineAsync(System.Text.Json.JsonSerializer.Serialize(command));
+            var command = new { Type = "OUTBULK", SpaceName = _spaceName, Tuples = tuples };
+            await _writer!.WriteLineAsync(JsonSerializer.Serialize(command));
             var line = await _reader!.ReadLineAsync();
             if (line == null) throw new Exception("Disconnected from server");
-            var response = System.Text.Json.JsonSerializer.Deserialize<Response>(line) ?? throw new Exception("Invalid response");
+            var response = JsonSerializer.Deserialize<Response>(line) ?? throw new Exception("Invalid response");
             if (response.Status != "OK") throw new Exception(response.Message);
         }
         finally
@@ -56,14 +73,45 @@ public class TupleSpaceClient(string host, int port, string spaceName) : IDispos
         if (_client == null || !_client.Connected)
         {
             _client = new TcpClient();
-            await _client.ConnectAsync(host, port, cancellationToken);
+            await _client.ConnectAsync(_host, _port, cancellationToken);
             _stream = _client.GetStream();
             _reader = new StreamReader(_stream, Encoding.UTF8);
             _writer = new StreamWriter(_stream, Encoding.UTF8) { AutoFlush = true };
 
+            if (_keyId != null && _privateKeyPem != null)
+            {
+                // 1. Send AUTH
+                var authCommand = new { Type = "AUTH", KeyId = _keyId };
+                await _writer.WriteLineAsync(JsonSerializer.Serialize(authCommand));
+
+                var line = await _reader.ReadLineAsync(cancellationToken);
+                if (line == null) throw new Exception("Disconnected during authentication");
+                var response = JsonSerializer.Deserialize<Response>(line) ?? throw new Exception("Invalid auth response");
+
+                if (response.Status == "CHALLENGE")
+                {
+                    // 2. Sign Challenge
+                    var challenge = Convert.FromBase64String(response.Challenge ?? throw new Exception("Challenge missing"));
+                    using var rsa = RSA.Create();
+                    rsa.ImportFromPem(_privateKeyPem);
+                    var signature = rsa.SignData(challenge, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
+                    var sigCommand = new { Type = "RESPONSE", Signature = Convert.ToBase64String(signature) };
+                    await _writer.WriteLineAsync(JsonSerializer.Serialize(sigCommand));
+
+                    line = await _reader.ReadLineAsync(cancellationToken);
+                    if (line == null) throw new Exception("Disconnected during challenge response");
+                    response = JsonSerializer.Deserialize<Response>(line) ?? throw new Exception("Invalid response to challenge");
+                }
+
+                if (response.Status != "OK")
+                {
+                    throw new Exception($"Authentication failed: {response.Message}");
+                }
+            }
+
             // Create/Ensure space exists
-            var createCommand = new { Type = "CREATE", SpaceName = spaceName, Tuple = (string[]?)null };
-            await _writer.WriteLineAsync(System.Text.Json.JsonSerializer.Serialize(createCommand));
+            var createCommand = new { Type = "CREATE", SpaceName = _spaceName, Tuple = (string[]?)null };
+            await _writer.WriteLineAsync(JsonSerializer.Serialize(createCommand));
             var createLine = await _reader.ReadLineAsync(cancellationToken);
             if (createLine == null) throw new Exception("Disconnected from server during CREATE");
         }
@@ -77,12 +125,12 @@ public class TupleSpaceClient(string host, int port, string spaceName) : IDispos
         {
             await EnsureConnectedAsync(cancellationToken);
 
-            var command = new { Type = type, SpaceName = spaceName, Tuple = tuple };
-            await _writer!.WriteLineAsync(System.Text.Json.JsonSerializer.Serialize(command));
+            var command = new { Type = type, SpaceName = _spaceName, Tuple = tuple };
+            await _writer!.WriteLineAsync(JsonSerializer.Serialize(command));
             
             var line = await _reader!.ReadLineAsync(cancellationToken);
             if (line == null) throw new Exception("Disconnected from server");
-            return System.Text.Json.JsonSerializer.Deserialize<Response>(line) ?? throw new Exception("Invalid response");
+            return JsonSerializer.Deserialize<Response>(line) ?? throw new Exception("Invalid response");
         }
         finally
         {
@@ -158,9 +206,11 @@ public class TupleSpaceClient(string host, int port, string spaceName) : IDispos
             return;
         }
 
-        var hostToUse = host;
-        var portToUse = port;
-        var spaceNameToUse = spaceName;
+        var hostToUse = _host;
+        var portToUse = _port;
+        var spaceNameToUse = _spaceName;
+        var keyIdToUse = _keyId;
+        var privateKeyPemToUse = _privateKeyPem;
 
         _ = Task.Run(async () =>
         {
@@ -180,7 +230,7 @@ public class TupleSpaceClient(string host, int port, string spaceName) : IDispos
                     }
                 }
 
-                using var client = new TupleSpaceClient(hostToUse, portToUse, spaceNameToUse);
+                using var client = new TupleSpaceClient(hostToUse, portToUse, spaceNameToUse, keyIdToUse, privateKeyPemToUse);
                 await client.OutAsync(values).ConfigureAwait(false);
             }
             catch (Exception ex)
@@ -341,8 +391,46 @@ public class TupleSpaceClient(string host, int port, string spaceName) : IDispos
   
     public async Task RunRemotelyAsync(string code, string tupleDefinitions, int workerId)
     {
-        using var expressionClient = new TupleSpaceClient(host, port, "expressions");
-        await expressionClient.OutAsync("expression", spaceName, code, tupleDefinitions, workerId.ToString());
+        using var expressionClient = new TupleSpaceClient(_host, _port, "expressions", _keyId, _privateKeyPem);
+        await expressionClient.OutAsync("expression", _spaceName, code, tupleDefinitions, workerId.ToString());
+    }
+
+    public async Task UploadPublicKeyAsync(string keyId, string publicKeyPem)
+    {
+        await _semaphore.WaitAsync();
+        try
+        {
+            await EnsureConnectedAsync();
+            var command = new { Type = "UPLOAD_KEY", KeyId = keyId, PublicKey = publicKeyPem };
+            await _writer!.WriteLineAsync(JsonSerializer.Serialize(command));
+            var line = await _reader!.ReadLineAsync();
+            if (line == null) throw new Exception("Disconnected from server");
+            var response = JsonSerializer.Deserialize<Response>(line) ?? throw new Exception("Invalid response");
+            if (response.Status != "OK") throw new Exception(response.Message);
+        }
+        finally
+        {
+            _semaphore.Release();
+        }
+    }
+
+    public async Task RevokePublicKeyAsync(string keyId)
+    {
+        await _semaphore.WaitAsync();
+        try
+        {
+            await EnsureConnectedAsync();
+            var command = new { Type = "REVOKE_KEY", KeyId = keyId };
+            await _writer!.WriteLineAsync(JsonSerializer.Serialize(command));
+            var line = await _reader!.ReadLineAsync();
+            if (line == null) throw new Exception("Disconnected from server");
+            var response = JsonSerializer.Deserialize<Response>(line) ?? throw new Exception("Invalid response");
+            if (response.Status != "OK") throw new Exception(response.Message);
+        }
+        finally
+        {
+            _semaphore.Release();
+        }
     }
 
     public void Dispose()
@@ -359,5 +447,6 @@ public class TupleSpaceClient(string host, int port, string spaceName) : IDispos
         public string Status { get; set; } = "";
         public string? Message { get; set; }
         public string[]? Tuple { get; set; }
+        public string? Challenge { get; set; }
     }
 }

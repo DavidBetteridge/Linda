@@ -1,41 +1,32 @@
 using System.Net.Sockets;
 using System.Reflection.Metadata;
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using TupleClient;
 
 namespace TupleServer.Tests;
 
-public class IntegrationTests
+public class IntegrationTests : AuthTestBase
 {
-    private CancellationTokenSource _cts;
-    private Task _serverTask;
     private const int Port = 8081;
 
     [SetUp]
     public void Setup()
     {
-        _cts = new CancellationTokenSource();
-        var server = new TcpServer(Port, new ServerStatistics());
-        _serverTask = server.StartAsync(_cts.Token);
+        StartServer(Port);
     }
 
     [TearDown]
     public async Task TearDown()
     {
-        _cts.Cancel();
-        try
-        {
-            await _serverTask;
-        }
-        catch (OperationCanceledException) { }
-        _cts.Dispose();
+        await StopServer();
     }
 
     [Test]
     public async Task TestClientLibrary_BasicOperations()
     {
-        using var client = new TupleSpaceClient("127.0.0.1", Port, "test-client-lib");
+        using var client = CreateClient("test-client-lib");
 
         // Out
         await client.OutAsync("key1", "value1");
@@ -56,7 +47,7 @@ public class IntegrationTests
     [Test]
     public async Task TestClientLibrary_PatternMatching()
     {
-        using var client = new TupleSpaceClient("127.0.0.1", Port, "test-pattern");
+        using var client = CreateClient("test-pattern");
 
         await client.OutAsync("a", "1", "x");
         await client.OutAsync("a", "2", "y");
@@ -75,7 +66,7 @@ public class IntegrationTests
     [Test]
     public async Task TestClientLibrary_BlockingAndEval()
     {
-        using var client = new TupleSpaceClient("127.0.0.1", Port, "test-blocking");
+        using var client = CreateClient("test-blocking");
 
         var inTask = client.InAsync("task1", "*");
         
@@ -88,7 +79,7 @@ public class IntegrationTests
         _ = Task.Run(async () =>
         {
             await Task.Delay(200);
-            using var client2 = new TupleSpaceClient("127.0.0.1", Port, "test-blocking");
+            using var client2 = CreateClient("test-blocking");
             await client2.OutAsync("task1", "done");
         });
 
@@ -99,9 +90,9 @@ public class IntegrationTests
     [Test]
     public async Task TestClientLibrary_RdBlocking()
     {
-        using var client1 = new TupleSpaceClient("127.0.0.1", Port, "test-rd-blocking");
-        using var client2 = new TupleSpaceClient("127.0.0.1", Port, "test-rd-blocking");
-        using var client3 = new TupleSpaceClient("127.0.0.1", Port, "test-rd-blocking");
+        using var client1 = CreateClient("test-rd-blocking");
+        using var client2 = CreateClient("test-rd-blocking");
+        using var client3 = CreateClient("test-rd-blocking");
 
         var rdTask1 = client1.RdAsync(TimeSpan.FromSeconds(5), "msg", "*");
         var rdTask2 = client2.RdAsync(TimeSpan.FromSeconds(5), "msg", "*");
@@ -126,14 +117,14 @@ public class IntegrationTests
     [Test]
     public void TestClientLibrary_Timeout()
     {
-        using var client = new TupleSpaceClient("127.0.0.1", Port, "test-timeout");
+        using var client = CreateClient("test-timeout");
         Assert.ThrowsAsync<TimeoutException>(async () => await client.InAsync(TimeSpan.FromMilliseconds(100), "non-existent"));
     }
 
     [Test]
     public async Task TestClientLibrary_BulkOutScope()
     {
-        using var client = new TupleSpaceClient("127.0.0.1", Port, "test-bulk-out");
+        using var client = CreateClient("test-bulk-out");
 
         using (var scope = new BulkOutScope(client))
         {
@@ -162,7 +153,7 @@ public class IntegrationTests
     [Test]
     public async Task TestClientLibrary_Eval()
     {
-        using var client = new TupleSpaceClient("127.0.0.1", Port, "test-eval");
+        using var client = CreateClient("test-eval");
 
         var evalTask = client.EvalAsync(new LiveTuple
         {
@@ -180,5 +171,14 @@ public class IntegrationTests
         Assert.That(result.Name, Is.EqualTo("Task1"));
         
         await evalTask;
+    }
+
+    [Test]
+    public async Task TestClientLibrary_AuthenticationFailsWithInvalidKey()
+    {
+        using var client = new TupleSpaceClient("127.0.0.1", Port, "test-auth-fail", "wrongkey", _testPrivateKeyPem);
+        var ex = Assert.ThrowsAsync<Exception>(async () => await client.OutAsync("key", "value"));
+        Assert.That(ex.Message, Does.Contain("Authentication failed")
+                                    .Or.Contain("Invalid Key ID"));
     }
 }

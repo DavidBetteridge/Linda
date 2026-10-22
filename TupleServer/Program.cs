@@ -4,7 +4,15 @@ using Spectre.Console.Rendering;
 
 var cts = new CancellationTokenSource();
 var stats = new ServerStatistics();
-var server = new TcpServer(8080, stats);
+var keysDir = Path.Combine(Directory.GetCurrentDirectory(), "keys");
+if (!Directory.Exists(keysDir))
+{
+    AnsiConsole.MarkupLine("[red]Keys directory does not exist.[/]");
+    return;
+}
+AnsiConsole.MarkupLine("[green]Keys directory: " + keysDir + "[/]");
+
+var server = new TcpServer(8080, stats, keysDirectory: keysDir);
 
 Console.CancelKeyPress += (s, e) =>
 {

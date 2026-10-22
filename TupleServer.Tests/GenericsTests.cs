@@ -2,30 +2,20 @@ using TupleClient;
 
 namespace TupleServer.Tests;
 
-public class GenericsTests
+public class GenericsTests : AuthTestBase
 {
-    private CancellationTokenSource _cts;
-    private Task _serverTask;
     private const int Port = 8082;
 
     [SetUp]
     public void Setup()
     {
-        _cts = new CancellationTokenSource();
-        var server = new TcpServer(Port, new ServerStatistics());
-        _serverTask = server.StartAsync(_cts.Token);
+        StartServer(Port);
     }
 
     [TearDown]
     public async Task TearDown()
     {
-        _cts.Cancel();
-        try
-        {
-            await _serverTask;
-        }
-        catch (OperationCanceledException) { }
-        _cts.Dispose();
+        await StopServer();
     }
 
     public struct MyTuple
@@ -44,7 +34,7 @@ public class GenericsTests
     [Test]
     public async Task TestOutAsyncGeneric()
     {
-        using var client = new TupleSpaceClient("127.0.0.1", Port, "test-generics");
+        using var client = CreateClient("test-generics");
 
         var myTuple = new MyTuple { Key = "test", Value = 123, Metadata = "meta" };
         
@@ -57,7 +47,7 @@ public class GenericsTests
     [Test]
     public async Task TestGenericWithBulkOut()
     {
-        using var client = new TupleSpaceClient("127.0.0.1", Port, "test-bulk-generics");
+        using var client = CreateClient("test-bulk-generics");
 
         using (new BulkOutScope(client))
         {
@@ -75,7 +65,7 @@ public class GenericsTests
     [Test]
     public async Task TestInAsyncGeneric()
     {
-        using var client = new TupleSpaceClient("127.0.0.1", Port, "test-in-generic");
+        using var client = CreateClient("test-in-generic");
 
         await client.OutAsync("MyTuple", "test", "456", "extra");
 

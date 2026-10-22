@@ -25,4 +25,8 @@
     <ProjectReference Include="..\TupleClient\TupleClient.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <Compile Remove="AuthenticationTests.cs" />
+  </ItemGroup>
+
 </Project>

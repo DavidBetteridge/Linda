@@ -1,7 +1,9 @@
 using TupleClient;
 
 var spaceName = "dataflow-" + Guid.NewGuid();
-using var client = new TupleSpaceClient("127.0.0.1", 8080, spaceName);
+var keyId = Environment.GetEnvironmentVariable("TUPLE_KEY_ID");
+var privateKey = Environment.GetEnvironmentVariable("TUPLE_PRIVATE_KEY");
+using var client = new TupleSpaceClient("127.0.0.1", 8080, spaceName, keyId, privateKey);
 
 Console.WriteLine($"Starting DataFlow example on space: {spaceName}");
 
