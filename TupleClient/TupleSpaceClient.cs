@@ -235,7 +235,7 @@ public class TupleSpaceClient : IDisposable
             }
             catch (Exception ex)
             {
-                // In a production system, we'd use a real logger
+                Console.WriteLine(ex.Message);
             }
         });
     }

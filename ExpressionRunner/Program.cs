@@ -5,15 +5,34 @@ using TupleClient;
 
 if (args.Length == 0)
 {
-    Console.WriteLine("Please supply the name of the client");
+    Console.WriteLine("Please supply the name of the client.");
     return;
 }
 
+var keysDir = Path.Combine(Directory.GetCurrentDirectory(), "key");
+if (!Directory.Exists(keysDir))
+{
+    Console.WriteLine("Key directory does not exist");
+    return;
+}
+
+var keys = Directory.GetFiles(keysDir, "*.pem");
+if (keys.Length != 1)
+{
+    Console.WriteLine("Key directory must contact EXACTLY ONE pem file");
+    return;
+}
+
+var keyId = Path.GetFileNameWithoutExtension(keys[0]);
+var privateKey = await File.ReadAllTextAsync(keys[0]);
+
 var processName = args[0];
+
+
 
 Console.WriteLine($"Expression Runner {processName} started...");
 
-using var expressionClient = new TupleSpaceClient("127.0.0.1", 8080, "expressions");
+using var expressionClient = new TupleSpaceClient("127.0.0.1", 8080, "expressions", keyId, privateKey);
 
 // Set up script options with necessary references and imports
 var scriptOptions = ScriptOptions.Default
@@ -35,7 +54,7 @@ while (true)
 
         _ = Task.Run(async () =>
         {
-            using var client = new TupleSpaceClient("127.0.0.1", 8080, spaceName);
+            using var client = new TupleSpaceClient("127.0.0.1", 8080, spaceName, keyId, privateKey);
             try
             {
                 Console.WriteLine($"Starting execution for space: {spaceName}");

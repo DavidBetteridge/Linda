@@ -1,12 +1,27 @@
 using TupleClient;
 
+var keysDir = Path.Combine(Directory.GetCurrentDirectory(), "key");
+if (!Directory.Exists(keysDir))
+{
+    Console.WriteLine("Key directory does not exist");
+    return;
+}
+
+var keys = Directory.GetFiles(keysDir, "*.pem");
+if (keys.Length != 1)
+{
+    Console.WriteLine("Key directory must contact EXACTLY ONE pem file");
+    return;
+}
+
+var keyId = Path.GetFileNameWithoutExtension(keys[0]);
+var privateKey = await File.ReadAllTextAsync(keys[0]);
+
 // A Sudoku grid is represented as a string of 81 characters, where ' ' or '0' or '.' is an empty square.
 // We'll use a string for simplicity in the tuple.
 const string initialGrid = "53  7    6  195    98    6 8   6   34  8 3  17   2   6 6    28    419  5    8  79";
 
 var spaceName = "sudoku-" + Guid.NewGuid();
-var keyId = Environment.GetEnvironmentVariable("TUPLE_KEY_ID");
-var privateKey = Environment.GetEnvironmentVariable("TUPLE_PRIVATE_KEY");
 using var client = new TupleSpaceClient("127.0.0.1", 8080, spaceName, keyId, privateKey);
 
 Console.WriteLine("Solving Sudoku...");
