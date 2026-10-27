@@ -33,7 +33,7 @@ public class KeyManagementTests : AuthTestBase
         await client.UploadPublicKeyAsync(newKeyId, newPublicKeyPem);
 
         // 2. Try to connect with the new key
-        using var newClient = new TupleSpaceClient("127.0.0.1", Port, "management-test", newKeyId, newPrivateKeyPem);
+        using var newClient = new TupleSpaceClient("127.0.0.1", Port, "management-test", newKeyId, newPrivateKeyPem, serverCertificateCustomValidationCallback: (sender, certificate, chain, sslPolicyErrors) => true);
         await newClient.OutAsync("test", "new-key-works");
         
         var result = await newClient.InAsync("test", "new-key-works");
@@ -54,7 +54,7 @@ public class KeyManagementTests : AuthTestBase
         await client.UploadPublicKeyAsync(newKeyId, newPublicKeyPem);
 
         // 2. Verify it works
-        using (var newClient = new TupleSpaceClient("127.0.0.1", Port, "management-test", newKeyId, newPrivateKeyPem))
+        using (var newClient = new TupleSpaceClient("127.0.0.1", Port, "management-test", newKeyId, newPrivateKeyPem, serverCertificateCustomValidationCallback: (sender, certificate, chain, sslPolicyErrors) => true))
         {
             await newClient.OutAsync("test", "works-before-revoke");
         }
@@ -63,7 +63,7 @@ public class KeyManagementTests : AuthTestBase
         await client.RevokePublicKeyAsync(newKeyId);
 
         // 4. Try to connect with revoked key - should fail
-        using var revokedClient = new TupleSpaceClient("127.0.0.1", Port, "management-test", newKeyId, newPrivateKeyPem);
+        using var revokedClient = new TupleSpaceClient("127.0.0.1", Port, "management-test", newKeyId, newPrivateKeyPem, serverCertificateCustomValidationCallback: (sender, certificate, chain, sslPolicyErrors) => true);
         Assert.ThrowsAsync<Exception>(async () => await revokedClient.OutAsync("test", "should-fail"));
     }
 
@@ -74,7 +74,7 @@ public class KeyManagementTests : AuthTestBase
         // but here we just use the one already started which REQUIRES auth.
         
         // Try to connect without credentials
-        using var client = new TupleSpaceClient("127.0.0.1", Port, "unauth-test");
+        using var client = new TupleSpaceClient("127.0.0.1", Port, "unauth-test", serverCertificateCustomValidationCallback: (sender, certificate, chain, sslPolicyErrors) => true);
         
         // This should fail because the server requires AUTH and the client didn't provide it.
         // Actually TupleSpaceClient.EnsureConnectedAsync will try to send AUTH if keyId is provided.

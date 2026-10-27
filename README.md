@@ -184,18 +184,43 @@ Start the visualizer to see the interaction between processes and tuple spaces i
 dotnet run --project TupleVisualizer/TupleVisualizer.csproj
 ```
 
-## Authentication
+## Encryption & Authentication
 
-The `TupleServer` supports optional RSA-based authentication. When enabled, clients must prove possession of a private key corresponding to a public key stored on the server.
+The `TupleServer` uses TLS to encrypt all traffic and RSA-based authentication for client identity verification.
 
-### Authentication Process
+### Server Certificate (TLS)
+
+The server requires a valid X.509 certificate to enable TLS encryption.
+
+#### Option 1: Using .NET Development Certificates (Windows/macOS)
+The easiest way for local development is to use the .NET dev-certs tool:
+```bash
+# Export the development certificate to a PFX file
+dotnet dev-certs https -ep server.pfx -p password
+```
+
+#### Option 2: Using OpenSSL
+To create a self-signed certificate manually:
+```bash
+# Generate a private key and a self-signed certificate
+openssl req -x509 -newkey rsa:2048 -nodes -keyout key.pem -out cert.pem -days 365 -subj "/CN=localhost"
+
+# Combine them into a PFX file (required by .NET)
+openssl pkcs12 -export -out server.pfx -inkey key.pem -in cert.pem -password pass:password
+```
+
+Place the `server.pfx` file in the same directory as the `TupleServer` executable.
+
+### Client Authentication (RSA)
+
+Clients must prove possession of a private key corresponding to a public key stored on the server.
 
 1.  **Client Hello**: Client sends an `AUTH` command with a `KeyId`.
 2.  **Server Challenge**: Server looks up the public key for the `KeyId`. If found, it generates a random challenge and sends it back.
 3.  **Client Response**: Client signs the challenge using its private key (RSA-SHA256-PKCS1) and sends the signature.
 4.  **Server Verification**: Server verifies the signature. If valid, the connection is authenticated.
 
-### Getting Started with Keys
+#### Generating Client Keys
 
 To use authentication, you need to generate an RSA key pair.
 
@@ -213,11 +238,11 @@ openssl rsa -in mykey.pem -pubout -out mykey.pub
 Copy the public key (`mykey.pub`) into the `TupleServer/keys/` directory. The filename (excluding the `.pub` extension) will be used as the `KeyId`.
 
 **4. Configure the Client**
-Provide the `KeyId` and the content of the private key (`mykey.pem`) when creating the `TupleSpaceClient`.
+Provide the `KeyId` and the content of the private key (`mykey.pem`) when creating the `TupleSpaceClient`. Ensure `useTls` is set to `true`.
 
 ```csharp
 string privateKey = File.ReadAllText("mykey.pem");
-var client = new TupleSpaceClient("localhost", 8080, "my-space", "mykey", privateKey);
+var client = new TupleSpaceClient("localhost", 8080, "my-space", "mykey", privateKey, useTls: true);
 ```
 
 ## Tuple Space Visualizer

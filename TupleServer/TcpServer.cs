@@ -1,6 +1,9 @@
 using System.Net;
+using System.Net.Security;
 using System.Net.Sockets;
+using System.Security.Authentication;
 using System.Security.Cryptography;
+using System.Security.Cryptography.X509Certificates;
 using System.Text;
 using System.Text.Json;
 using TupleServer.Auth;
@@ -14,13 +17,15 @@ public class TcpServer
     private readonly ServerStatistics _stats;
     private readonly VisualizerBroadcaster _broadcaster;
     private readonly KeyManager? _keyManager;
+    private readonly X509Certificate2 _serverCertificate;
 
-    public TcpServer(int port, ServerStatistics stats, VisualizerBroadcaster? broadcaster = null, string? keysDirectory = null)
+    public TcpServer(int port, ServerStatistics stats, X509Certificate2 serverCertificate, VisualizerBroadcaster? broadcaster = null, string? keysDirectory = null)
     {
         _port = port;
         _stats = stats;
         _manager = new TupleSpaceManager();
         _broadcaster = broadcaster ?? new VisualizerBroadcaster();
+        _serverCertificate = serverCertificate ?? throw new ArgumentNullException(nameof(serverCertificate));
         if (keysDirectory != null)
         {
             _keyManager = new KeyManager(keysDirectory);
@@ -56,7 +61,11 @@ public class TcpServer
         {
             using (client)
             {
-                using var stream = client.GetStream();
+                Stream stream = client.GetStream();
+                var sslStream = new SslStream(stream, false);
+                await sslStream.AuthenticateAsServerAsync(_serverCertificate, false, SslProtocols.Tls12 | SslProtocols.Tls13, false);
+                stream = sslStream;
+
                 using var reader = new StreamReader(stream, Encoding.UTF8);
                 using var writer = new StreamWriter(stream, Encoding.UTF8) { AutoFlush = true };
 
@@ -149,8 +158,9 @@ public class TcpServer
                 return false;
             }
         }
-        catch
+        catch (Exception)
         {
+            // Logging can be added here if needed for debugging
             return false;
         }
     }

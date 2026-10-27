@@ -176,9 +176,10 @@ public class IntegrationTests : AuthTestBase
     [Test]
     public async Task TestClientLibrary_AuthenticationFailsWithInvalidKey()
     {
-        using var client = new TupleSpaceClient("127.0.0.1", Port, "test-auth-fail", "wrongkey", _testPrivateKeyPem);
+        using var client = new TupleSpaceClient("127.0.0.1", Port, "test-auth-fail", "wrongkey", _testPrivateKeyPem, serverCertificateCustomValidationCallback: (sender, certificate, chain, sslPolicyErrors) => true);
         var ex = Assert.ThrowsAsync<Exception>(async () => await client.OutAsync("key", "value"));
         Assert.That(ex.Message, Does.Contain("Authentication failed")
-                                    .Or.Contain("Invalid Key ID"));
+                                    .Or.Contain("Invalid Key ID")
+                                    .Or.Contain("Disconnected during authentication"));
     }
 }

@@ -9,10 +9,11 @@ if (args.Length == 0)
     return;
 }
 
-var keysDir = Path.Combine(Directory.GetCurrentDirectory(), "key");
+//var keysDir = Path.Combine(Directory.GetCurrentDirectory(), "key");
+var keysDir = "/Users/davidbetteridge/tuples/ExpressionRunner/key";
 if (!Directory.Exists(keysDir))
 {
-    Console.WriteLine("Key directory does not exist");
+    Console.WriteLine($"Key directory {keysDir} does not exist");
     return;
 }
 
@@ -32,7 +33,7 @@ var processName = args[0];
 
 Console.WriteLine($"Expression Runner {processName} started...");
 
-using var expressionClient = new TupleSpaceClient("127.0.0.1", 8080, "expressions", keyId, privateKey);
+using var expressionClient = new TupleSpaceClient("127.0.0.1", 8080, "expressions", keyId, privateKey,serverCertificateCustomValidationCallback: (sender, certificate, chain, sslPolicyErrors) => true);
 
 // Set up script options with necessary references and imports
 var scriptOptions = ScriptOptions.Default
@@ -54,7 +55,7 @@ while (true)
 
         _ = Task.Run(async () =>
         {
-            using var client = new TupleSpaceClient("127.0.0.1", 8080, spaceName, keyId, privateKey);
+            using var client = new TupleSpaceClient("127.0.0.1", 8080, spaceName, keyId, privateKey, serverCertificateCustomValidationCallback: (sender, certificate, chain, sslPolicyErrors) => true);
             try
             {
                 Console.WriteLine($"Starting execution for space: {spaceName}");

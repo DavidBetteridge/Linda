@@ -1,5 +1,8 @@
+using System.Net.Security;
 using System.Net.Sockets;
+using System.Security.Authentication;
 using System.Security.Cryptography;
+using System.Security.Cryptography.X509Certificates;
 using System.Text;
 using System.Text.Json;
 
@@ -12,22 +15,24 @@ public class TupleSpaceClient : IDisposable
     private readonly string _spaceName;
     private readonly string? _keyId;
     private readonly string? _privateKeyPem;
+    private readonly RemoteCertificateValidationCallback? _serverCertificateCustomValidationCallback;
 
     private TcpClient? _client;
-    private NetworkStream? _stream;
+    private Stream? _stream;
     private StreamReader? _reader;
     private StreamWriter? _writer;
     private readonly SemaphoreSlim _semaphore = new(1, 1);
     private readonly Lock _scopeLock = new();
     private BulkOutScope? _currentBulkScope;
 
-    public TupleSpaceClient(string host, int port, string spaceName, string? keyId = null, string? privateKeyPem = null)
+    public TupleSpaceClient(string host, int port, string spaceName, string? keyId = null, string? privateKeyPem = null, RemoteCertificateValidationCallback? serverCertificateCustomValidationCallback = null)
     {
         _host = host;
         _port = port;
         _spaceName = spaceName;
         _keyId = keyId;
         _privateKeyPem = privateKeyPem;
+        _serverCertificateCustomValidationCallback = serverCertificateCustomValidationCallback;
     }
 
     internal void EnterBulkOutScope(BulkOutScope scope)
@@ -51,10 +56,10 @@ public class TupleSpaceClient : IDisposable
 
     internal async Task SendBulkOutAsync(List<string[]> tuples)
     {
+        await EnsureConnectedAsync();
         await _semaphore.WaitAsync();
         try
         {
-            await EnsureConnectedAsync();
             var command = new { Type = "OUTBULK", SpaceName = _spaceName, Tuples = tuples };
             await _writer!.WriteLineAsync(JsonSerializer.Serialize(command));
             var line = await _reader!.ReadLineAsync();
@@ -70,11 +75,26 @@ public class TupleSpaceClient : IDisposable
 
     private async Task EnsureConnectedAsync(CancellationToken cancellationToken = default)
     {
-        if (_client == null || !_client.Connected)
+        if (_client != null && _client.Connected) return;
+
+        await _semaphore.WaitAsync(cancellationToken);
+        try
         {
+            if (_client != null && _client.Connected) return;
+
             _client = new TcpClient();
             await _client.ConnectAsync(_host, _port, cancellationToken);
             _stream = _client.GetStream();
+
+            var sslStream = new SslStream(_stream, false, _serverCertificateCustomValidationCallback);
+            await sslStream.AuthenticateAsClientAsync(new SslClientAuthenticationOptions
+            {
+                TargetHost = _host,
+                EnabledSslProtocols = SslProtocols.Tls12 | SslProtocols.Tls13,
+                CertificateRevocationCheckMode = X509RevocationMode.NoCheck
+            }, cancellationToken);
+            _stream = sslStream;
+
             _reader = new StreamReader(_stream, Encoding.UTF8);
             _writer = new StreamWriter(_stream, Encoding.UTF8) { AutoFlush = true };
 
@@ -82,7 +102,9 @@ public class TupleSpaceClient : IDisposable
             {
                 // 1. Send AUTH
                 var authCommand = new { Type = "AUTH", KeyId = _keyId };
-                await _writer.WriteLineAsync(JsonSerializer.Serialize(authCommand));
+                var authJson = JsonSerializer.Serialize(authCommand);
+                await _writer.WriteLineAsync(authJson);
+                await _writer.FlushAsync();
 
                 var line = await _reader.ReadLineAsync(cancellationToken);
                 if (line == null) throw new Exception("Disconnected during authentication");
@@ -96,7 +118,9 @@ public class TupleSpaceClient : IDisposable
                     rsa.ImportFromPem(_privateKeyPem);
                     var signature = rsa.SignData(challenge, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
                     var sigCommand = new { Type = "RESPONSE", Signature = Convert.ToBase64String(signature) };
-                    await _writer.WriteLineAsync(JsonSerializer.Serialize(sigCommand));
+                    var sigJson = JsonSerializer.Serialize(sigCommand);
+                    await _writer.WriteLineAsync(sigJson);
+                    await _writer.FlushAsync();
 
                     line = await _reader.ReadLineAsync(cancellationToken);
                     if (line == null) throw new Exception("Disconnected during challenge response");
@@ -112,19 +136,25 @@ public class TupleSpaceClient : IDisposable
             // Create/Ensure space exists
             var createCommand = new { Type = "CREATE", SpaceName = _spaceName, Tuple = (string[]?)null };
             await _writer.WriteLineAsync(JsonSerializer.Serialize(createCommand));
+            await _writer.FlushAsync();
             var createLine = await _reader.ReadLineAsync(cancellationToken);
             if (createLine == null) throw new Exception("Disconnected from server during CREATE");
+        }
+        finally
+        {
+            _semaphore.Release();
         }
     }
 
     private async Task<Response> SendCommandAsync(string type, string[]? tuple, CancellationToken cancellationToken = default)
     {
         if (_currentBulkScope != null) throw new InvalidOperationException($"Cannot perform {type} operation while in a bulk out scope");
+        
+        await EnsureConnectedAsync(cancellationToken);
+
         await _semaphore.WaitAsync(cancellationToken);
         try
         {
-            await EnsureConnectedAsync(cancellationToken);
-
             var command = new { Type = type, SpaceName = _spaceName, Tuple = tuple };
             await _writer!.WriteLineAsync(JsonSerializer.Serialize(command));
             
@@ -211,6 +241,7 @@ public class TupleSpaceClient : IDisposable
         var spaceNameToUse = _spaceName;
         var keyIdToUse = _keyId;
         var privateKeyPemToUse = _privateKeyPem;
+        var certCallbackToUse = _serverCertificateCustomValidationCallback;
 
         _ = Task.Run(async () =>
         {
@@ -230,7 +261,7 @@ public class TupleSpaceClient : IDisposable
                     }
                 }
 
-                using var client = new TupleSpaceClient(hostToUse, portToUse, spaceNameToUse, keyIdToUse, privateKeyPemToUse);
+                using var client = new TupleSpaceClient(hostToUse, portToUse, spaceNameToUse, keyIdToUse, privateKeyPemToUse, certCallbackToUse);
                 await client.OutAsync(values).ConfigureAwait(false);
             }
             catch (Exception ex)
@@ -391,7 +422,7 @@ public class TupleSpaceClient : IDisposable
   
     public async Task RunRemotelyAsync(string code, string tupleDefinitions, int workerId)
     {
-        using var expressionClient = new TupleSpaceClient(_host, _port, "expressions", _keyId, _privateKeyPem);
+        using var expressionClient = new TupleSpaceClient(_host, _port, "expressions", _keyId, _privateKeyPem, (sender, certificate, chain, errors) => true);
         await expressionClient.OutAsync("expression", _spaceName, code, tupleDefinitions, workerId.ToString());
     }
 

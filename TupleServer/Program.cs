@@ -1,4 +1,6 @@
-﻿using TupleServer;
+﻿using System.Security.Cryptography;
+using System.Security.Cryptography.X509Certificates;
+using TupleServer;
 using Spectre.Console;
 using Spectre.Console.Rendering;
 
@@ -12,7 +14,23 @@ if (!Directory.Exists(keysDir))
 }
 AnsiConsole.MarkupLine("[green]Keys directory: " + keysDir + "[/]");
 
-var server = new TcpServer(8080, stats, keysDirectory: keysDir);
+// Load or generate server certificate
+var certPath = Path.Combine(Directory.GetCurrentDirectory(), "server.pfx");
+X509Certificate2 serverCert;
+if (File.Exists(certPath))
+{
+    serverCert = X509CertificateLoader.LoadPkcs12FromFile(certPath, "password" );
+}
+else
+{
+    AnsiConsole.MarkupLine("[yellow]Generating self-signed server certificate...[/]");
+    using var rsa = RSA.Create(2048);
+    var request = new CertificateRequest("cn=localhost", rsa, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
+    serverCert = request.CreateSelfSigned(DateTimeOffset.Now, DateTimeOffset.Now.AddYears(1));
+    File.WriteAllBytes(certPath, serverCert.Export(X509ContentType.Pfx, "password"));
+}
+
+var server = new TcpServer(8080, stats, serverCert, keysDirectory: keysDir);
 
 Console.CancelKeyPress += (s, e) =>
 {
