@@ -1,16 +1,40 @@
 ﻿using TupleClient;
 
+var keysDir = Path.Combine(Directory.GetCurrentDirectory(), "key");
+if (args.Length == 1)
+    keysDir = args[0];
+
+if (!Directory.Exists(keysDir))
+{
+    Console.WriteLine("Key directory does not exist");
+    return;
+}
+
+var keys = Directory.GetFiles(keysDir, "*.pem");
+if (keys.Length != 1)
+{
+    Console.WriteLine("Key directory must contact EXACTLY ONE pem file");
+    return;
+}
+
+var keyId = Path.GetFileNameWithoutExtension(keys[0]);
+var privateKey = await File.ReadAllTextAsync(keys[0]);
+
+
 // Given the numbers 1...numCount this example will sum them all together.
 const int numCount = 100;
 
 // For this example, we are going to create a tuple space with a unique name, starting addition
 var spaceName = "addition" + Guid.NewGuid();
 
+var host = Environment.GetEnvironmentVariable("TUPLE_SERVER_HOST") ?? "127.0.0.1";
+var portStr = Environment.GetEnvironmentVariable("TUPLE_SERVER_PORT");
+if (!int.TryParse(portStr, out var port))
+    port = 8080;
+
 // Connect to the tuple space server.
 // When running on different computers, don't use a local address!
-var keyId = Environment.GetEnvironmentVariable("TUPLE_KEY_ID");
-var privateKey = Environment.GetEnvironmentVariable("TUPLE_PRIVATE_KEY");
-using var client = new TupleSpaceClient("127.0.0.1", 8080, spaceName, keyId, privateKey);
+using var client = new TupleSpaceClient(host, port, spaceName, keyId, privateKey, serverCertificateCustomValidationCallback: (sender, certificate, chain, sslPolicyErrors) => true);
 
 // We write all the numbers we wish to add along with some meta-data and tokens to the tuple space.
 await SetupData(client, numCount);

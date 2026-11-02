@@ -84,6 +84,8 @@ public class TupleSpaceClient : IDisposable
 
             _client = new TcpClient();
             await _client.ConnectAsync(_host, _port, cancellationToken);
+            Console.WriteLine($"Connecting to {_host}:{_port}");
+
             _stream = _client.GetStream();
 
             var sslStream = new SslStream(_stream, false, _serverCertificateCustomValidationCallback);
@@ -452,6 +454,25 @@ public class TupleSpaceClient : IDisposable
         {
             await EnsureConnectedAsync();
             var command = new { Type = "REVOKE_KEY", KeyId = keyId };
+            await _writer!.WriteLineAsync(JsonSerializer.Serialize(command));
+            var line = await _reader!.ReadLineAsync();
+            if (line == null) throw new Exception("Disconnected from server");
+            var response = JsonSerializer.Deserialize<Response>(line) ?? throw new Exception("Invalid response");
+            if (response.Status != "OK") throw new Exception(response.Message);
+        }
+        finally
+        {
+            _semaphore.Release();
+        }
+    }
+
+    public async Task RegisterNodeAsync(string nodeId, string version, string nodeType)
+    {
+        await _semaphore.WaitAsync();
+        try
+        {
+            await EnsureConnectedAsync();
+            var command = new { Type = "REGISTER_NODE", NodeId = nodeId, Version = version, NodeType = nodeType };
             await _writer!.WriteLineAsync(JsonSerializer.Serialize(command));
             var line = await _reader!.ReadLineAsync();
             if (line == null) throw new Exception("Disconnected from server");

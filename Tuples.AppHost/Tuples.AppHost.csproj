@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <Sdk Name="Aspire.AppHost.Sdk" Version="9.1.0" />
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsAspireHost>true</IsAspireHost>
+    <UserSecretsId>b46e5c45-c343-4d26-959d-77c95b6d491f</UserSecretsId>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Aspire.Hosting.AppHost" Version="13.6.4" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\TupleServer\TupleServer.csproj" />
+    <ProjectReference Include="..\Addition\Addition.csproj" />
+    <ProjectReference Include="..\ExpressionRunner\ExpressionRunner.csproj" />
+    <ProjectReference Include="..\SudokuSolver\SudokuSolver.csproj" />
+    <ProjectReference Include="..\TupleVisualizer\TupleVisualizer.csproj" />
+  </ItemGroup>
+
+</Project>

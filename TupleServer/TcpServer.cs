@@ -6,18 +6,22 @@ using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
 using System.Text;
 using System.Text.Json;
+using System.Diagnostics;
+using OpenTelemetry.Trace;
 using TupleServer.Auth;
 
 namespace TupleServer;
 
 public class TcpServer
 {
+    public static readonly ActivitySource ActivitySource = new("TupleServer");
     private readonly int _port;
     private readonly TupleSpaceManager _manager;
     private readonly ServerStatistics _stats;
     private readonly VisualizerBroadcaster _broadcaster;
     private readonly KeyManager? _keyManager;
     private readonly X509Certificate2 _serverCertificate;
+    private readonly NodeRegistry _nodeRegistry;
 
     public TcpServer(int port, ServerStatistics stats, X509Certificate2 serverCertificate, VisualizerBroadcaster? broadcaster = null, string? keysDirectory = null)
     {
@@ -26,6 +30,7 @@ public class TcpServer
         _manager = new TupleSpaceManager();
         _broadcaster = broadcaster ?? new VisualizerBroadcaster();
         _serverCertificate = serverCertificate ?? throw new ArgumentNullException(nameof(serverCertificate));
+        _nodeRegistry = new NodeRegistry(_broadcaster);
         if (keysDirectory != null)
         {
             _keyManager = new KeyManager(keysDirectory);
@@ -33,6 +38,7 @@ public class TcpServer
     }
 
     public TupleSpaceManager Manager => _manager;
+    public NodeRegistry NodeRegistry => _nodeRegistry;
 
     public async Task StartAsync(CancellationToken cancellationToken)
     {
@@ -56,7 +62,11 @@ public class TcpServer
 
     private async Task HandleClientAsync(TcpClient client, CancellationToken cancellationToken)
     {
+        Console.WriteLine("Client connecting");
+        
+        using var activity = ActivitySource.StartActivity("Connection");
         var processId = $"P{Guid.NewGuid().ToString()[..8]}";
+        activity?.SetTag("process.id", processId);
         try
         {
             using (client)
@@ -110,6 +120,7 @@ public class TcpServer
 
     private async Task<bool> AuthenticateClientAsync(StreamReader reader, StreamWriter writer, SemaphoreSlim writerLock, CancellationToken cancellationToken)
     {
+        using var activity = ActivitySource.StartActivity("Authenticate");
         try
         {
             // 1. Wait for Auth command
@@ -158,8 +169,11 @@ public class TcpServer
                 return false;
             }
         }
-        catch (Exception)
+        catch (Exception ex)
         {
+            activity?.SetStatus(ActivityStatusCode.Error, ex.Message);
+            activity?.SetTag("exception.message", ex.Message);
+            activity?.SetTag("exception.stacktrace", ex.ToString());
             // Logging can be added here if needed for debugging
             return false;
         }
@@ -185,6 +199,11 @@ public class TcpServer
 
     private async Task ProcessCommandAsync(Command command, StreamWriter writer, SemaphoreSlim writerLock, string processId, CancellationToken cancellationToken)
     {
+        using var activity = ActivitySource.StartActivity("ProcessCommand");
+        activity?.SetTag("command.type", command.Type);
+        activity?.SetTag("space.name", command.SpaceName);
+        activity?.SetTag("process.id", processId);
+
         try
         {
             var space = _manager.GetOrCreateSpace(command.SpaceName);
@@ -199,6 +218,7 @@ public class TcpServer
                 case "OUT":
                     if (command.Tuple != null)
                     {
+                        activity?.SetTag("tuple.size", command.Tuple.Length);
                         space.Add(command.Tuple);
                         _stats.IncrementOut();
                         _broadcaster.BroadcastEvent("OUT", command.SpaceName, processId, command.Tuple);
@@ -209,6 +229,7 @@ public class TcpServer
                 case "OUTBULK":
                     if (command.Tuples != null)
                     {
+                        activity?.SetTag("tuples.count", command.Tuples.Count);
                         space.AddBulk(command.Tuples);
                         _stats.IncrementOut(command.Tuples.Count);
                         _broadcaster.BroadcastEvent("OUTBULK", command.SpaceName, processId);
@@ -217,6 +238,7 @@ public class TcpServer
                     break;
 
                 case "IN":
+                    activity?.AddEvent(new ActivityEvent("BlockedForIn"));
                     _broadcaster.BroadcastEvent("BLOCKED", command.SpaceName, processId, command.Tuple);
                     var tuple = await space.GetAsync(command.Tuple, true, cancellationToken);
                     _stats.IncrementIn();
@@ -225,6 +247,7 @@ public class TcpServer
                     break;
 
                 case "RD":
+                    activity?.AddEvent(new ActivityEvent("BlockedForRd"));
                     _broadcaster.BroadcastEvent("BLOCKED", command.SpaceName, processId, command.Tuple);
                     var rdTuple = await space.GetAsync(command.Tuple, false, cancellationToken);
                     _stats.IncrementRd();
@@ -281,6 +304,30 @@ public class TcpServer
                     }
                     break;
 
+                case "REGISTER_NODE":
+                    if (!string.IsNullOrEmpty(command.NodeId) && !string.IsNullOrEmpty(command.Version))
+                    {
+                        _nodeRegistry.RegisterNode(command.NodeId, command.Version, command.NodeType ?? "Unknown");
+                        response = new { Status = "OK" };
+                    }
+                    else
+                    {
+                        response = new { Status = "Error", Message = "Invalid node registration data" };
+                    }
+                    break;
+
+                case "GET_NODES":
+                    var nodes = _nodeRegistry.GetAllNodes().Select(n => new 
+                    { 
+                        n.NodeId, 
+                        n.Version, 
+                        n.NodeType, 
+                        ConnectedAt = n.ConnectedAt.ToString("O"),
+                        LastHeartbeat = n.LastHeartbeat.ToString("O")
+                    }).ToList();
+                    response = new { Status = "OK", Nodes = nodes };
+                    break;
+
                 default:
                     response = new { Status = "Error", Message = "Unknown command" };
                     break;
@@ -318,5 +365,8 @@ public class TcpServer
         public string? KeyId { get; set; }
         public string? PublicKey { get; set; }
         public string? Signature { get; set; }
+        public string? NodeId { get; set; }
+        public string? Version { get; set; }
+        public string? NodeType { get; set; }
     }
 }

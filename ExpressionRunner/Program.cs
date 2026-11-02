@@ -2,18 +2,13 @@ using Microsoft.CodeAnalysis.CSharp.Scripting;
 using Microsoft.CodeAnalysis.Scripting;
 using TupleClient;
 
+var keysDir = Path.Combine(Directory.GetCurrentDirectory(), "key");
+if (args.Length == 2)
+    keysDir = args[0];
 
-if (args.Length == 0)
-{
-    Console.WriteLine("Please supply the name of the client.");
-    return;
-}
-
-//var keysDir = Path.Combine(Directory.GetCurrentDirectory(), "key");
-var keysDir = "/Users/davidbetteridge/tuples/ExpressionRunner/key";
 if (!Directory.Exists(keysDir))
 {
-    Console.WriteLine($"Key directory {keysDir} does not exist");
+    Console.WriteLine("Key directory does not exist");
     return;
 }
 
@@ -27,13 +22,21 @@ if (keys.Length != 1)
 var keyId = Path.GetFileNameWithoutExtension(keys[0]);
 var privateKey = await File.ReadAllTextAsync(keys[0]);
 
-var processName = args[0];
+var processName = args[^1];
 
+var host = Environment.GetEnvironmentVariable("TUPLE_SERVER_HOST") ?? "127.0.0.1";
+var portStr = Environment.GetEnvironmentVariable("TUPLE_SERVER_PORT");
+if (!int.TryParse(portStr, out var port))
+    port = 8080;
 
+Console.WriteLine($"Expression Runner {processName} started... (Connecting to {host}:{port})");
 
-Console.WriteLine($"Expression Runner {processName} started...");
+using var expressionClient = new TupleSpaceClient(host, port, "expressions", keyId, privateKey,serverCertificateCustomValidationCallback: (sender, certificate, chain, sslPolicyErrors) => true);
 
-using var expressionClient = new TupleSpaceClient("127.0.0.1", 8080, "expressions", keyId, privateKey,serverCertificateCustomValidationCallback: (sender, certificate, chain, sslPolicyErrors) => true);
+// Register this node with the server
+var version = typeof(TupleSpaceClient).Assembly.GetName().Version?.ToString() ?? "1.0.0";
+await expressionClient.RegisterNodeAsync(processName, version, "ExpressionRunner");
+Console.WriteLine($"Registered as node '{processName}' with version {version}");
 
 // Set up script options with necessary references and imports
 var scriptOptions = ScriptOptions.Default
@@ -55,7 +58,7 @@ while (true)
 
         _ = Task.Run(async () =>
         {
-            using var client = new TupleSpaceClient("127.0.0.1", 8080, spaceName, keyId, privateKey, serverCertificateCustomValidationCallback: (sender, certificate, chain, sslPolicyErrors) => true);
+            using var client = new TupleSpaceClient(host, port, spaceName, keyId, privateKey, serverCertificateCustomValidationCallback: (sender, certificate, chain, sslPolicyErrors) => true);
             try
             {
                 Console.WriteLine($"Starting execution for space: {spaceName}");

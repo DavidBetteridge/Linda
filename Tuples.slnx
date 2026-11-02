@@ -12,4 +12,7 @@
   <Project Path="DataFlow/DataFlow.csproj" />
   <Project Path="TupleServer/TupleServer.csproj" />
   <Project Path="TupleVisualizer/TupleVisualizer.csproj" />
+  <Project Path="ClusterManager/ClusterManager.csproj" />
+  <Project Path="Tuples.AppHost/Tuples.AppHost.csproj" />
+  <Project Path="Tuples.ServiceDefaults/Tuples.ServiceDefaults.csproj" />
 </Solution>

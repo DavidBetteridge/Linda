@@ -3,16 +3,27 @@ using System.Security.Cryptography.X509Certificates;
 using TupleServer;
 using Spectre.Console;
 using Spectre.Console.Rendering;
+using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.DependencyInjection;
 
-var cts = new CancellationTokenSource();
+var builder = Host.CreateApplicationBuilder(args);
+builder.AddServiceDefaults();
+
+var noDashboard = args.Contains("--no-dashboard");
+
 var stats = new ServerStatistics();
+builder.Services.AddSingleton(stats);
+
 var keysDir = Path.Combine(Directory.GetCurrentDirectory(), "keys");
+var keysDirArgIndex = Array.IndexOf(args, "--keys-dir");
+if (keysDirArgIndex != -1 && keysDirArgIndex + 1 < args.Length)
+    keysDir = args[keysDirArgIndex + 1];
+AnsiConsole.MarkupLine("[yellow]Keys Dir" + keysDir + "[/]");
+
 if (!Directory.Exists(keysDir))
 {
-    AnsiConsole.MarkupLine("[red]Keys directory does not exist.[/]");
-    return;
+    Directory.CreateDirectory(keysDir);
 }
-AnsiConsole.MarkupLine("[green]Keys directory: " + keysDir + "[/]");
 
 // Load or generate server certificate
 var certPath = Path.Combine(Directory.GetCurrentDirectory(), "server.pfx");
@@ -30,7 +41,30 @@ else
     File.WriteAllBytes(certPath, serverCert.Export(X509ContentType.Pfx, "password"));
 }
 
-var server = new TcpServer(8080, stats, serverCert, keysDirectory: keysDir);
+builder.Services.AddSingleton(serverCert);
+var port = 8080;
+var portArgIndex = Array.IndexOf(args, "--port");
+if (portArgIndex != -1 && portArgIndex + 1 < args.Length)
+    int.TryParse(args[portArgIndex + 1], out port);
+
+var visualizerHost = "127.0.0.1";
+var visualizerPort = 9999;
+var vHostArgIndex = Array.IndexOf(args, "--visualizer-host");
+if (vHostArgIndex != -1 && vHostArgIndex + 1 < args.Length)
+    visualizerHost = args[vHostArgIndex + 1];
+
+var vPortArgIndex = Array.IndexOf(args, "--visualizer-port");
+if (vPortArgIndex != -1 && vPortArgIndex + 1 < args.Length)
+    int.TryParse(args[vPortArgIndex + 1], out visualizerPort);
+
+var broadcaster = new VisualizerBroadcaster(visualizerHost, visualizerPort);
+builder.Services.AddSingleton(broadcaster);
+builder.Services.AddSingleton(new TcpServer(port, stats, serverCert, broadcaster: broadcaster, keysDirectory: keysDir));
+
+using var host = builder.Build();
+
+var server = host.Services.GetRequiredService<TcpServer>();
+var cts = new CancellationTokenSource();
 
 Console.CancelKeyPress += (s, e) =>
 {
@@ -40,24 +74,29 @@ Console.CancelKeyPress += (s, e) =>
 
 var serverTask = server.StartAsync(cts.Token);
 
-await AnsiConsole.Live(CreateDashboard(stats, server.Manager))
-    .StartAsync(async ctx =>
-    {
-        while (!cts.Token.IsCancellationRequested)
+if (!noDashboard)
+{
+    await AnsiConsole.Live(CreateDashboard(stats, server.Manager))
+        .StartAsync(async ctx =>
         {
-            ctx.UpdateTarget(CreateDashboard(stats, server.Manager));
-            try
+            while (!cts.Token.IsCancellationRequested)
             {
-                await Task.Delay(500, cts.Token);
+                ctx.UpdateTarget(CreateDashboard(stats, server.Manager));
+                try
+                {
+                    await Task.Delay(500, cts.Token);
+                }
+                catch (OperationCanceledException)
+                {
+                    break;
+                }
             }
-            catch (OperationCanceledException)
-            {
-                break;
-            }
-        }
-    });
+        });
+}
 
 await serverTask;
+
+await host.RunAsync();
 
 static IRenderable CreateDashboard(ServerStatistics stats, TupleSpaceManager manager)
 {

@@ -1,6 +1,9 @@
 using TupleClient;
 
 var keysDir = Path.Combine(Directory.GetCurrentDirectory(), "key");
+if (args.Length == 1)
+    keysDir = args[0];
+
 if (!Directory.Exists(keysDir))
 {
     Console.WriteLine("Key directory does not exist");
@@ -22,7 +25,13 @@ var privateKey = await File.ReadAllTextAsync(keys[0]);
 const string initialGrid = "53  7    6  195    98    6 8   6   34  8 3  17   2   6 6    28    419  5    8  79";
 
 var spaceName = "sudoku-" + Guid.NewGuid();
-using var client = new TupleSpaceClient("127.0.0.1", 8080, spaceName, keyId, privateKey, serverCertificateCustomValidationCallback: (sender, certificate, chain, sslPolicyErrors) => true);
+
+var host = Environment.GetEnvironmentVariable("TUPLE_SERVER_HOST") ?? "127.0.0.1";
+var portStr = Environment.GetEnvironmentVariable("TUPLE_SERVER_PORT");
+if (!int.TryParse(portStr, out var port))
+    port = 8080;
+
+using var client = new TupleSpaceClient(host, port, spaceName, keyId, privateKey, serverCertificateCustomValidationCallback: (sender, certificate, chain, sslPolicyErrors) => true);
 
 Console.WriteLine("Solving Sudoku...");
 Console.WriteLine(FormatGrid(initialGrid));

@@ -1,0 +1,34 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:local="clr-namespace:ClusterManager"
+        x:Class="ClusterManager.MainWindow"
+        Title="Cluster Manager"
+        Width="800"
+        Height="600">
+    <DockPanel Margin="10">
+        <TextBlock DockPanel.Dock="Top" 
+                   Text="Cluster Nodes" 
+                   FontSize="24" 
+                   FontWeight="Bold"
+                   Margin="0,0,0,10"/>
+        
+        <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" Margin="0,10,0,0">
+            <TextBlock x:Name="StatusText" Text="Listening for node updates..." VerticalAlignment="Center"/>
+        </StackPanel>
+        
+        <DataGrid x:Name="NodesGrid" 
+                  AutoGenerateColumns="False"
+                  IsReadOnly="True"
+                  GridLinesVisibility="Horizontal"
+                  BorderThickness="1"
+                  BorderBrush="Gray">
+            <DataGrid.Columns>
+                <DataGridTextColumn Header="Node ID" Binding="{Binding NodeId, DataType=local:NodeViewModel}" Width="*"/>
+                <DataGridTextColumn Header="Type" Binding="{Binding NodeType, DataType=local:NodeViewModel}" Width="120"/>
+                <DataGridTextColumn Header="Version" Binding="{Binding Version, DataType=local:NodeViewModel}" Width="100"/>
+                <DataGridTextColumn Header="Connected At" Binding="{Binding ConnectedAt, DataType=local:NodeViewModel}" Width="180"/>
+                <DataGridTextColumn Header="Last Heartbeat" Binding="{Binding LastHeartbeat, DataType=local:NodeViewModel}" Width="180"/>
+            </DataGrid.Columns>
+        </DataGrid>
+    </DockPanel>
+</Window>
